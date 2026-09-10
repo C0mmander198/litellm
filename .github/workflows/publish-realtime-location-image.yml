@@ -15,6 +15,7 @@ on:
       - schema.prisma
       - tests/test_litellm/proxy/realtime_endpoints/**
       - tests/test_litellm/llms/openai/realtime/**
+      - tests/test_litellm/realtime_api/**
       - ui/**
       - uv.lock
 
@@ -58,6 +59,7 @@ jobs:
         run: >-
           uv run --no-sync pytest
           tests/test_litellm/proxy/realtime_endpoints/
+          tests/test_litellm/realtime_api/test_main.py
           tests/test_litellm/llms/openai/realtime/test_openai_realtime_handler.py
           tests/test_litellm/litellm_core_utils/test_realtime_streaming.py -q
 

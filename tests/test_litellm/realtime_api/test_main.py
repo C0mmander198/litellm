@@ -2,9 +2,9 @@ import asyncio
 import time
 from types import TracebackType
 from typing import Final
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-
+import httpx
 import pytest
 
 import litellm
@@ -59,7 +59,7 @@ def _run_client_secret(session, model, monkeypatch):
 
     async def mock_handler(**kwargs):
         captured.update(kwargs)
-        return object()
+        return httpx.Response(200)
 
     def mock_get_llm_provider(model, api_base, api_key):
         return model, "openai", None, api_base
@@ -91,6 +91,49 @@ def test_client_secret_session_model_takes_priority_over_top_level(monkeypatch):
     )
     assert captured["model"] == "gpt-realtime-session"
     assert captured["request_data"]["session"]["model"] == "gpt-realtime-session"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_server_key", [True, False])
+async def test_calls_select_server_credential_only_for_server_owned_sessions(use_server_key: bool) -> None:
+    handler: Final = AsyncMock(return_value=httpx.Response(201))
+    session: Final = {"type": "realtime", "model": "openai/gpt-realtime-2.1", "instructions": "Preserve me"}
+    with patch.object(realtime_main.base_llm_http_handler, "async_realtime_calls_handler", handler):
+        await realtime_main.arealtime_calls.__wrapped__(
+            openai_ephemeral_key="ephemeral-key",
+            sdp_body=b"sdp-offer",
+            model="openai/gpt-realtime-2.1",
+            session=session,
+            api_key="bound-provider-key",
+            api_base="https://selected.example/v1",
+            use_server_key=use_server_key,
+            litellm_logging_obj=FakeLogging(),
+        )
+    assert handler.call_args.kwargs["openai_ephemeral_key"] == (
+        "bound-provider-key" if use_server_key else "ephemeral-key"
+    )
+    assert handler.call_args.kwargs["session_config"] == {
+        "type": "realtime",
+        "model": "gpt-realtime-2.1",
+        "instructions": "Preserve me",
+    }
+
+
+@pytest.mark.asyncio
+async def test_minted_context_retains_effective_session_without_exposing_it_in_response() -> None:
+    upstream: Final = httpx.Response(200, json={"value": "ephemeral-key", "expires_at": 123})
+    handler: Final = AsyncMock(return_value=upstream)
+    with patch.object(realtime_main.base_llm_http_handler, "async_realtime_client_secret_handler", handler):
+        response: Final = await realtime_main.acreate_realtime_client_secret.__wrapped__(
+            model="openai/gpt-realtime-2.1",
+            session={"type": "realtime", "model": "openai/gpt-realtime-2.1", "instructions": "Preserve me"},
+            api_key="bound-provider-key",
+            litellm_logging_obj=FakeLogging(),
+        )
+    assert response.extensions["litellm_realtime_session"] == handler.call_args.kwargs["request_data"]["session"]
+    assert response.extensions["litellm_realtime_session"]["instructions"] == "Preserve me"
+    assert response.extensions["litellm_realtime_session"]["model"] == "gpt-realtime-2.1"
+    assert response.json() == {"value": "ephemeral-key", "expires_at": 123}
 
 
 async def _hanging_resolver(credentials, project_id, custom_llm_provider) -> tuple[str, str]:

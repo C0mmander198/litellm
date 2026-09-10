@@ -180,6 +180,10 @@ async def acreate_realtime_client_secret(
             extra_headers=kwargs.get("extra_headers") or {},
             model_info={"id": deployment_id} if isinstance(deployment_id, str) else {},
         )
+        response.extensions["litellm_realtime_session"] = request_data.get("session") or {
+            "type": "realtime",
+            "model": model_name,
+        }
     return response
 
 
@@ -262,6 +266,7 @@ async def arealtime_calls(
     model: str | None = None,
     session: dict[str, Any] | None = None,
     timeout: float | None = None,
+    use_server_key: bool = False,
     **kwargs,
 ):
     model_name = model or "gpt-4o-realtime-preview"
@@ -278,7 +283,7 @@ async def arealtime_calls(
         api_base=litellm_params.api_base,
         api_key=litellm_params.api_key,
     )
-    provider_config, resolved_api_base, _ = _get_realtime_http_provider_config(
+    provider_config, resolved_api_base, resolved_api_key = _get_realtime_http_provider_config(
         custom_llm_provider=custom_llm_provider,
         dynamic_api_base=dynamic_api_base,
         dynamic_api_key=dynamic_api_key,
@@ -295,7 +300,7 @@ async def arealtime_calls(
     )
     return await base_llm_http_handler.async_realtime_calls_handler(
         api_base=resolved_api_base,
-        openai_ephemeral_key=openai_ephemeral_key,
+        openai_ephemeral_key=resolved_api_key if use_server_key else openai_ephemeral_key,
         sdp_body=sdp_body,
         logging_obj=litellm_logging_obj,
         timeout=timeout or request_timeout,

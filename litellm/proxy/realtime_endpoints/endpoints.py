@@ -475,11 +475,17 @@ async def proxy_realtime_calls(
         else:
             session_config["model"] = model
 
+        server_owned_call: Final = (
+            sideband_context is not None and sideband_context.session is not None and session_type == "realtime"
+        )
         data = {
             "model": model,
             "openai_ephemeral_key": openai_ephemeral_key,
+            "use_server_key": server_owned_call,
             "sdp_body": sdp_body,
-            "session": session_config,
+            "session": (
+                sideband_context.session if sideband_context is not None and server_owned_call else session_config
+            ),
         }
 
         data = await add_litellm_data_to_request(

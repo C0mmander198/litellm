@@ -1232,10 +1232,17 @@ def test_webrtc_sideband_keeps_call_route_and_owner(
         api_key="selected-project-key",
         extra_headers={"OpenAI-Project": "project-a"},
     )
+    session_config: Final = {
+        "type": "realtime",
+        "model": "gpt-realtime-2.1",
+        "instructions": "Preserve the minted instructions",
+        "audio": {"input": {"turn_detection": {"type": "semantic_vad"}}, "output": {"voice": "marin"}},
+        "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+    }
     mint_response: Final = httpx.Response(
         200,
         json={"value": "ephemeral-provider-key", "expires_at": int(time.time()) + 60},
-        extensions={"litellm_realtime_route": upstream_route},
+        extensions={"litellm_realtime_route": upstream_route, "litellm_realtime_session": session_config},
     )
 
     async def route_mint(**kwargs):
@@ -1296,6 +1303,9 @@ def test_webrtc_sideband_keeps_call_route_and_owner(
             assert answer.status_code == 201, answer.text
             assert answer.headers["location"].endswith("/rtc_bound")
             assert create_call.call_args.kwargs["api_base"] == upstream_route.api_base
+            assert create_call.call_args.kwargs["api_key"] == upstream_route.api_key
+            assert create_call.call_args.kwargs["use_server_key"] is True
+            assert create_call.call_args.kwargs["session"] == session_config
             with client.websocket_connect(
                 f"{path}?call_id=rtc_bound",
                 subprotocols=[f"openai-insecure-api-key.{token}", "realtime"],

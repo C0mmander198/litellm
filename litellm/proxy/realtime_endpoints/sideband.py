@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import WebSocket, WebSocketException
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
 
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value_helper, encrypt_value_helper
@@ -15,6 +15,7 @@ from litellm.types.realtime import RealtimeUpstreamRoute
 
 _ROUTE_ADAPTER: Final[TypeAdapter[RealtimeUpstreamRoute | None]] = TypeAdapter(RealtimeUpstreamRoute | None)
 _STRING_ADAPTER: Final = TypeAdapter(str)
+_SESSION_ADAPTER: Final = TypeAdapter(dict[str, JsonValue] | None)
 
 
 class SidebandCache(Protocol):
@@ -31,6 +32,7 @@ class RealtimeSidebandContext(BaseModel):
     expires_at: int
     route: RealtimeUpstreamRoute
     auth_json: str = Field(repr=False)
+    session: dict[str, JsonValue] | None = Field(default=None, repr=False)
 
 
 def _token_digest(token: str) -> str:
@@ -55,6 +57,7 @@ async def remember_realtime_secret(
         expires_at=expires_at,
         route=route,
         auth_json=auth.model_dump_json(exclude={"parent_otel_span"}),
+        session=_SESSION_ADAPTER.validate_python(response.extensions.pop("litellm_realtime_session", None)),
     )
     await cache.async_set_cache(
         key=f"realtime:secret:{context.token_digest}",
