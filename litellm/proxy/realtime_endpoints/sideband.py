@@ -15,7 +15,7 @@ from litellm.types.realtime import RealtimeUpstreamRoute
 
 _ROUTE_ADAPTER: Final[TypeAdapter[RealtimeUpstreamRoute | None]] = TypeAdapter(RealtimeUpstreamRoute | None)
 _STRING_ADAPTER: Final = TypeAdapter(str)
-_SESSION_ADAPTER: Final = TypeAdapter(dict[str, JsonValue] | None)
+_SESSION_ADAPTER: Final[TypeAdapter[dict[str, JsonValue] | None]] = TypeAdapter(dict[str, JsonValue] | None)
 
 
 class SidebandCache(Protocol):
