@@ -515,6 +515,7 @@ async def proxy_realtime_calls(
         content=upstream_resp.content,
         status_code=upstream_resp.status_code,
         media_type=upstream_resp.headers.get("content-type", "application/sdp"),
+        headers={"location": upstream_resp.headers["location"]} if "location" in upstream_resp.headers else None,
     )
 
 

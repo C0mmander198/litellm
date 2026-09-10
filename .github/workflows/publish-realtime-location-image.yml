@@ -1,0 +1,91 @@
+name: Publish Realtime Location Fix Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - realtime_location_header
+    paths:
+      - .github/workflows/publish-realtime-location-image.yml
+      - Dockerfile
+      - docker/**
+      - litellm/**
+      - litellm-proxy-extras/**
+      - pyproject.toml
+      - schema.prisma
+      - tests/test_litellm/proxy/realtime_endpoints/test_realtime_webrtc_endpoints.py
+      - ui/**
+      - uv.lock
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Realtime regression test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: ./.github/actions/setup-uv-with-retries
+        with:
+          version: "0.10.9"
+
+      - name: Install dependencies
+        run: >-
+          .github/scripts/uv_sync_with_retries.sh --frozen --group ci --group proxy-dev
+          --extra google --extra proxy --extra semantic-router --extra saml
+
+      - name: Generate Prisma client
+        run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
+
+      - name: Run Realtime WebRTC endpoint tests
+        run: uv run --no-sync pytest tests/test_litellm/proxy/realtime_endpoints/test_realtime_webrtc_endpoints.py -q
+
+  publish:
+    name: Build and publish image
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/c0mmander198/litellm
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "${IMAGE}:realtime-location-fix" \
+            --tag "${IMAGE}:realtime-location-fix-${GITHUB_SHA::12}" \
+            .
+
+      - name: Publish image
+        run: |
+          docker push "${IMAGE}:realtime-location-fix"
+          docker push "${IMAGE}:realtime-location-fix-${GITHUB_SHA::12}"

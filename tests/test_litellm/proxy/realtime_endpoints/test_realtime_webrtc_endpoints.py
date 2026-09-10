@@ -151,7 +151,10 @@ def mock_route_request_realtime_calls():
     mock_resp = MagicMock(spec=httpx.Response)
     mock_resp.status_code = 201
     mock_resp.content = b"v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\n"
-    mock_resp.headers = {"content-type": "application/sdp"}
+    mock_resp.headers = {
+        "content-type": "application/sdp",
+        "location": "/v1/realtime/calls/rtc_test",
+    }
 
     async def _mock_route(*args, **kwargs):
         async def _inner():
@@ -457,6 +460,7 @@ async def test_realtime_calls_success_with_valid_encrypted_token(
     assert response.status_code == 201
     assert response.content.startswith(b"v=0")
     assert b"application/sdp" in response.headers.get("content-type", "").encode()
+    assert response.headers["location"] == "/v1/realtime/calls/rtc_test"
 
 
 def test_token_payload_carries_session_type():
