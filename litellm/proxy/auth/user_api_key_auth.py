@@ -530,6 +530,16 @@ async def user_api_key_auth_websocket(websocket: WebSocket):
     # Accept the WebSocket connection
 
     ws_scope: Final = websocket.scope or {}
+    if "call_id" in websocket.query_params and ws_scope.get("path") in (
+        "/realtime",
+        "/v1/realtime",
+        "/openai/v1/realtime",
+    ):
+        from litellm.proxy.proxy_server import user_api_key_cache
+        from litellm.proxy.realtime_endpoints.sideband import authenticate_realtime_sideband, sideband_token
+
+        return await authenticate_realtime_sideband(websocket, sideband_token(websocket), user_api_key_cache)
+
     scope_headers: Final = list(ws_scope.get("headers") or [])
     # ``get_request_route`` falls back to ``request.url.path`` when
     # ``scope["path"]`` is absent. On WebSockets that fallback reads

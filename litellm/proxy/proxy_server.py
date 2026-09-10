@@ -11748,14 +11748,20 @@ async def realtime_websocket_endpoint(
     ),
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth_websocket),
 ):
+    from litellm.proxy.realtime_endpoints.sideband import RealtimeSidebandContext
+
+    sideband: Final = getattr(websocket.state, "realtime_sideband", None)
+    sideband_context: Final = sideband if isinstance(sideband, RealtimeSidebandContext) else None
     requested_protocols: Final = [
-        p.strip() for p in (websocket.headers.get("sec-websocket-protocol") or "").split(",") if p.strip()
+        p.strip()
+        for p in (websocket.headers.get("sec-websocket-protocol") or "").split(",")
+        if p.strip() and not p.strip().startswith("openai-insecure-api-key.")
     ]
     accept_kwargs: Final[dict] = {}
     if requested_protocols:
         accept_kwargs["subprotocol"] = requested_protocols[0]
 
-    route_model = model
+    route_model = sideband_context.model if sideband_context is not None else model
     if route_model is None:
         if intent == "transcription":
             route_model = "gpt-realtime-whisper"
@@ -11778,7 +11784,12 @@ async def realtime_websocket_endpoint(
     await websocket.accept(**accept_kwargs)
 
     # Only use explicit parameters, not all query params
-    query_params: Final = cast(RealtimeQueryParams, dict(_realtime_query_params_template(model, intent)))
+    query_params: Final = cast(
+        RealtimeQueryParams,
+        {"call_id": websocket.query_params["call_id"]}
+        if sideband_context is not None
+        else dict(_realtime_query_params_template(model, intent)),
+    )
 
     data: dict[str, object] = {
         "model": route_model,
@@ -11840,11 +11851,15 @@ async def realtime_websocket_endpoint(
     # Phase 2: route to upstream LLM.
     try:
         data["user_api_key_dict"] = user_api_key_dict
-        llm_call: Final = await route_request(
-            data=data,
-            route_type="_arealtime",
-            llm_router=llm_router,
-            user_model=user_model,
+        llm_call: Final = (
+            litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
+            if sideband_context is not None
+            else await route_request(
+                data=data,
+                route_type="_arealtime",
+                llm_router=llm_router,
+                user_model=user_model,
+            )
         )
         await llm_call
     except websockets.exceptions.InvalidStatusCode as e:

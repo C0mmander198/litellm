@@ -1,4 +1,4 @@
-name: Publish Realtime Location Fix Image
+name: Publish Realtime Sideband Fix Image
 
 on:
   workflow_dispatch:
@@ -13,7 +13,8 @@ on:
       - litellm-proxy-extras/**
       - pyproject.toml
       - schema.prisma
-      - tests/test_litellm/proxy/realtime_endpoints/test_realtime_webrtc_endpoints.py
+      - tests/test_litellm/proxy/realtime_endpoints/**
+      - tests/test_litellm/llms/openai/realtime/**
       - ui/**
       - uv.lock
 
@@ -54,7 +55,11 @@ jobs:
         run: uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
 
       - name: Run Realtime WebRTC endpoint tests
-        run: uv run --no-sync pytest tests/test_litellm/proxy/realtime_endpoints/test_realtime_webrtc_endpoints.py -q
+        run: >-
+          uv run --no-sync pytest
+          tests/test_litellm/proxy/realtime_endpoints/
+          tests/test_litellm/llms/openai/realtime/test_openai_realtime_handler.py
+          tests/test_litellm/litellm_core_utils/test_realtime_streaming.py -q
 
   publish:
     name: Build and publish image
@@ -81,11 +86,11 @@ jobs:
           docker build \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
-            --tag "${IMAGE}:realtime-location-fix" \
-            --tag "${IMAGE}:realtime-location-fix-${GITHUB_SHA::12}" \
+            --tag "${IMAGE}:realtime-sideband-fix" \
+            --tag "${IMAGE}:realtime-sideband-fix-${GITHUB_SHA::12}" \
             .
 
       - name: Publish image
         run: |
-          docker push "${IMAGE}:realtime-location-fix"
-          docker push "${IMAGE}:realtime-location-fix-${GITHUB_SHA::12}"
+          docker push "${IMAGE}:realtime-sideband-fix"
+          docker push "${IMAGE}:realtime-sideband-fix-${GITHUB_SHA::12}"

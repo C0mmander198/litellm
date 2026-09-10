@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import ReadOnly, TypedDict
 
 from .llms.openai import (
@@ -49,7 +49,18 @@ class RealtimeModalityResponseTransformOutput(TypedDict):
 class RealtimeQueryParams(TypedDict, total=False):
     model: str
     intent: str | None
+    call_id: ReadOnly[str]
     # Add more fields as needed
+
+
+class RealtimeUpstreamRoute(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    model: str
+    api_base: str
+    api_key: str = Field(repr=False)
+    extra_headers: dict[str, str] = Field(default_factory=dict, repr=False)
+    model_info: dict[str, str] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

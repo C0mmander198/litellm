@@ -25,6 +25,7 @@ from litellm.types.realtime import (
     RealtimeQueryParams,
     RealtimeSessionConfig,
     RealtimeTranscriptionSessionRequest,
+    RealtimeUpstreamRoute,
 )
 from litellm.types.router import GenericLiteLLMParams
 from litellm.types.utils import CallTypes, LlmProviders
@@ -158,7 +159,7 @@ async def acreate_realtime_client_secret(
     request_data: Final = req.model_dump(exclude_none=True, exclude={"model"})
     if isinstance(request_data.get("session"), dict):
         request_data["session"] = _with_resolved_session_model(request_data["session"], model_name)
-    return await base_llm_http_handler.async_realtime_client_secret_handler(
+    response: Final = await base_llm_http_handler.async_realtime_client_secret_handler(
         api_base=resolved_api_base,
         api_key=resolved_api_key,
         request_data=request_data,
@@ -170,6 +171,16 @@ async def acreate_realtime_client_secret(
         client=kwargs.get("client"),
         api_version=litellm_params.api_version,
     )
+    if custom_llm_provider == "openai" and response.status_code == 200:
+        deployment_id: Final = (kwargs.get("model_info") or {}).get("id")
+        response.extensions["litellm_realtime_route"] = RealtimeUpstreamRoute(
+            model=f"openai/{model_name}",
+            api_base=resolved_api_base,
+            api_key=resolved_api_key,
+            extra_headers=kwargs.get("extra_headers") or {},
+            model_info={"id": deployment_id} if isinstance(deployment_id, str) else {},
+        )
+    return response
 
 
 @wrapper_client
@@ -455,6 +466,7 @@ async def _arealtime(
             query_params=query_params,
             user_api_key_dict=kwargs.get("user_api_key_dict"),
             litellm_metadata=_build_litellm_metadata(kwargs),
+            extra_headers=extra_headers,
         )
     elif _custom_llm_provider == "bedrock":
         # Extract AWS parameters from kwargs

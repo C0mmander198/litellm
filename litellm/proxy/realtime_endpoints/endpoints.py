@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi import status as http_status
 
+import litellm
 from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.proxy.auth.auth_checks import can_key_call_resolved_model
@@ -21,6 +22,11 @@ from litellm.proxy.common_utils.openai_error_payload import (
     error_status_code,
     openai_error_param,
     openai_error_type,
+)
+from litellm.proxy.realtime_endpoints.sideband import (
+    bind_realtime_call,
+    get_realtime_secret,
+    remember_realtime_secret,
 )
 from litellm.types.realtime import (
     RealtimeClientSecretRequest,
@@ -347,6 +353,16 @@ async def create_realtime_client_secret(
         session_type=session_type,
     )
     encrypted_token: Final[str] = encrypt_value_helper(token_payload)
+    from litellm.proxy.proxy_server import user_api_key_cache
+
+    await remember_realtime_secret(
+        token=encrypted_token,
+        model=model,
+        expires_at=expires_at if isinstance(expires_at, int) else None,
+        response=upstream_resp,
+        auth=user_api_key_dict,
+        cache=user_api_key_cache,
+    )
     upstream_json["value"] = encrypted_token
 
     session_obj: Final[dict | None] = upstream_json.get("session")
@@ -397,6 +413,9 @@ async def proxy_realtime_calls(
         )
 
     encrypted_token: Final = auth_header.removeprefix("Bearer ").strip()
+    from litellm.proxy.proxy_server import user_api_key_cache
+
+    sideband_context: Final = await get_realtime_secret(encrypted_token, user_api_key_cache)
     decrypted_token_value: Final = decrypt_value_helper(
         value=encrypted_token,
         key="realtime_calls_auth",
@@ -436,9 +455,10 @@ async def proxy_realtime_calls(
 
     # Build a minimal UserAPIKeyAuth with user/team IDs from the token
     # so spend tracking and budget enforcement work correctly.
-    minimal_auth: Final = UserAPIKeyAuth(
-        user_id=user_id,
-        team_id=team_id,
+    minimal_auth: Final = (
+        UserAPIKeyAuth.model_validate_json(sideband_context.auth_json)
+        if sideband_context is not None
+        else UserAPIKeyAuth(user_id=user_id, team_id=team_id)
     )
 
     data: dict = {}
@@ -479,11 +499,15 @@ async def proxy_realtime_calls(
 
         verbose_proxy_logger.debug("WebRTC: /v1/realtime/calls (model=%s)", model)
 
-        llm_call: Final = await route_request(
-            data=data,
-            route_type="arealtime_calls",
-            llm_router=llm_router,
-            user_model=user_model,
+        llm_call: Final = (
+            litellm.arealtime_calls(**{**data, **sideband_context.route.model_dump()})
+            if sideband_context is not None
+            else await route_request(
+                data=data,
+                route_type="arealtime_calls",
+                llm_router=llm_router,
+                user_model=user_model,
+            )
         )
         upstream_resp: Final[httpx.Response] = await llm_call
 
@@ -511,6 +535,7 @@ async def proxy_realtime_calls(
             code=error_status_code(e, 500),
         )
 
+    await bind_realtime_call(response=upstream_resp, context=sideband_context, cache=user_api_key_cache)
     return Response(
         content=upstream_resp.content,
         status_code=upstream_resp.status_code,

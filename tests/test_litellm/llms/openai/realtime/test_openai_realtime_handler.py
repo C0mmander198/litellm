@@ -1,4 +1,5 @@
 import json
+from typing import Final
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -7,10 +8,75 @@ import pytest
 from litellm.llms.custom_httpx.http_handler import get_shared_realtime_ssl_context
 
 
-
 @pytest.mark.parametrize(
-    "api_base", ["https://api.openai.com/v1", "https://api.openai.com"]
+    "api_base,expected",
+    [
+        ("https://api.openai.com/v1", "wss://api.openai.com/v1/realtime?call_id=rtc_existing"),
+        ("https://gateway.example/openai/v1", "wss://gateway.example/openai/v1/realtime?call_id=rtc_existing"),
+    ],
 )
+def test_sideband_url_preserves_call_and_base_path(api_base: str, expected: str) -> None:
+    from litellm.llms.openai.realtime.handler import OpenAIRealtime
+
+    assert OpenAIRealtime()._construct_url(api_base, {"call_id": "rtc_existing"}) == expected
+
+
+@pytest.mark.asyncio
+async def test_sideband_forwards_project_headers_and_uses_usage_streamer() -> None:
+    from litellm.llms.openai.realtime.handler import OpenAIRealtime
+    from litellm.proxy._types import UserAPIKeyAuth
+
+    upstream: Final = AsyncMock()
+    manager: Final = MagicMock()
+    manager.__aenter__ = AsyncMock(return_value=upstream)
+    manager.__aexit__ = AsyncMock(return_value=None)
+    auth: Final = UserAPIKeyAuth(user_id="owner", api_key="hashed-key")
+    with (
+        patch("websockets.connect", return_value=manager) as connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as streamer,
+    ):
+        streamer.return_value.bidirectional_forward = AsyncMock()
+        await OpenAIRealtime().async_realtime(
+            model="gpt-realtime-2.1",
+            websocket=AsyncMock(),
+            logging_obj=MagicMock(),
+            api_base="https://api.openai.com/v1",
+            api_key="upstream-key",
+            query_params={"call_id": "rtc_existing"},
+            user_api_key_dict=auth,
+            extra_headers={"OpenAI-Project": "project-a", "OpenAI-Organization": "org-a", "Authorization": "untrusted"},
+        )
+        assert connect.call_args.args[0] == "wss://api.openai.com/v1/realtime?call_id=rtc_existing"
+        assert connect.call_args.kwargs["additional_headers"] == {
+            "Authorization": "Bearer upstream-key",
+            "OpenAI-Project": "project-a",
+            "OpenAI-Organization": "org-a",
+        }
+        assert streamer.call_args.kwargs["user_api_key_dict"] is auth
+        streamer.return_value.bidirectional_forward.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_upstream_http_rejection_uses_valid_websocket_close_code() -> None:
+    from websockets.datastructures import Headers
+    from websockets.exceptions import InvalidStatus
+    from websockets.http11 import Response
+
+    from litellm.llms.openai.realtime.handler import OpenAIRealtime
+
+    client: Final = AsyncMock()
+    with patch("websockets.connect", side_effect=InvalidStatus(Response(403, "Forbidden", Headers()))):
+        await OpenAIRealtime().async_realtime(
+            model="gpt-realtime-2.1",
+            websocket=client,
+            logging_obj=MagicMock(),
+            api_key="upstream-key",
+            query_params={"call_id": "rtc_existing"},
+        )
+    client.close.assert_awaited_once_with(code=1011, reason="Upstream WebSocket rejected: HTTP 403")
+
+
+@pytest.mark.parametrize("api_base", ["https://api.openai.com/v1", "https://api.openai.com"])
 def test_openai_realtime_handler_url_construction(api_base):
     from litellm.llms.openai.realtime.handler import OpenAIRealtime
 
@@ -59,12 +125,8 @@ def test_openai_realtime_handler_model_parameter_inclusion():
     api_base = "https://api.openai.com/"
 
     # Test with just model parameter
-    query_params_model_only: RealtimeQueryParams = {
-        "model": "gpt-4o-mini-realtime-preview"
-    }
-    url = handler._construct_url(
-        api_base=api_base, query_params=query_params_model_only
-    )
+    query_params_model_only: RealtimeQueryParams = {"model": "gpt-4o-mini-realtime-preview"}
+    url = handler._construct_url(api_base=api_base, query_params=query_params_model_only)
 
     # Verify the URL structure
     assert url.startswith("wss://api.openai.com/v1/realtime?")
@@ -75,9 +137,7 @@ def test_openai_realtime_handler_model_parameter_inclusion():
         "model": "gpt-4o-mini-realtime-preview",
         "intent": "chat",
     }
-    url_with_extras = handler._construct_url(
-        api_base=api_base, query_params=query_params_with_extras
-    )
+    url_with_extras = handler._construct_url(api_base=api_base, query_params=query_params_with_extras)
 
     # Verify both parameters are included
     assert url_with_extras.startswith("wss://api.openai.com/v1/realtime?")
@@ -123,12 +183,8 @@ async def test_async_realtime_success():
 
     shared_context = get_shared_realtime_ssl_context()
     with (
-        patch(
-            "websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)
-        ) as mock_ws_connect,
-        patch(
-            "litellm.llms.openai.realtime.handler.RealTimeStreaming"
-        ) as mock_realtime_streaming,
+        patch("websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)) as mock_ws_connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as mock_realtime_streaming,
     ):
         mock_streaming_instance = MagicMock()
         mock_realtime_streaming.return_value = mock_streaming_instance
@@ -178,14 +234,9 @@ async def test_async_realtime_url_contains_model():
 
     shared_context = get_shared_realtime_ssl_context()
     with (
-        patch(
-            "websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)
-        ) as mock_ws_connect,
-        patch(
-            "litellm.llms.openai.realtime.handler.RealTimeStreaming"
-        ) as mock_realtime_streaming,
+        patch("websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)) as mock_ws_connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as mock_realtime_streaming,
     ):
-
         mock_streaming_instance = MagicMock()
         mock_realtime_streaming.return_value = mock_streaming_instance
         mock_streaming_instance.bidirectional_forward = AsyncMock()
@@ -253,12 +304,8 @@ async def test_async_realtime_forwards_openai_beta_header_when_client_sends_it()
             return None
 
     with (
-        patch(
-            "websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)
-        ) as mock_ws_connect,
-        patch(
-            "litellm.llms.openai.realtime.handler.RealTimeStreaming"
-        ) as mock_realtime_streaming,
+        patch("websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)) as mock_ws_connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as mock_realtime_streaming,
     ):
         mock_streaming_instance = MagicMock()
         mock_realtime_streaming.return_value = mock_streaming_instance
@@ -314,14 +361,9 @@ async def test_async_realtime_uses_max_size_parameter():
 
     shared_context = get_shared_realtime_ssl_context()
     with (
-        patch(
-            "websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)
-        ) as mock_ws_connect,
-        patch(
-            "litellm.llms.openai.realtime.handler.RealTimeStreaming"
-        ) as mock_realtime_streaming,
+        patch("websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)) as mock_ws_connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as mock_realtime_streaming,
     ):
-
         mock_streaming_instance = MagicMock()
         mock_realtime_streaming.return_value = mock_streaming_instance
         mock_streaming_instance.bidirectional_forward = AsyncMock()
@@ -384,14 +426,9 @@ async def test_async_realtime_ws_url_has_no_ssl():
             return None
 
     with (
-        patch(
-            "websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)
-        ) as mock_ws_connect,
-        patch(
-            "litellm.llms.openai.realtime.handler.RealTimeStreaming"
-        ) as mock_realtime_streaming,
+        patch("websockets.connect", return_value=DummyAsyncContextManager(mock_backend_ws)) as mock_ws_connect,
+        patch("litellm.llms.openai.realtime.handler.RealTimeStreaming") as mock_realtime_streaming,
     ):
-
         mock_streaming_instance = MagicMock()
         mock_realtime_streaming.return_value = mock_streaming_instance
         mock_streaming_instance.bidirectional_forward = AsyncMock()
