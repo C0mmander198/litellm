@@ -11851,6 +11851,28 @@ async def realtime_websocket_endpoint(
     # Phase 2: route to upstream LLM.
     try:
         data["user_api_key_dict"] = user_api_key_dict
+        # ``_arealtime`` is a WebSocket-only generic route. Unlike the HTTP
+        # Realtime endpoints, its routing path did not materialize credentials
+        # referenced by a deployment's ``litellm_credential_name`` before the
+        # OpenAI handler opened the upstream socket. The direct proxy WebSocket
+        # therefore failed with "api_key is required" even though the same
+        # deployment works through the WebRTC/client-secret path.
+        #
+        # Resolve only the selected deployment's provider fields, after model
+        # authorization has succeeded, and never override an explicit key
+        # already present in request data. This keeps direct WebSocket Realtime
+        # routing aligned with the other Realtime endpoints without exposing a
+        # provider key to the caller.
+        if sideband_context is None and "api_key" not in data and llm_router is not None:
+            provider_credentials = llm_router.get_deployment_credentials_with_provider(
+                route_model,
+                team_id=user_api_key_dict.team_id,
+            )
+            if provider_credentials is not None:
+                for credential_field in ("api_key", "api_base", "custom_llm_provider"):
+                    credential_value = provider_credentials.get(credential_field)
+                    if credential_value is not None:
+                        data[credential_field] = credential_value
         llm_call: Final = (
             litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
             if sideband_context is not None

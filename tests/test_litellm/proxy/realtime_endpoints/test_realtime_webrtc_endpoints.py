@@ -860,6 +860,69 @@ async def test_realtime_websocket_phase2_failure_sends_error_event_and_reasoned_
 
 
 @pytest.mark.asyncio
+async def test_realtime_websocket_resolves_deployment_provider_credentials():
+    """Direct Realtime WebSockets must hydrate a model's stored credential.
+
+    The WebRTC client-secret flow already resolved this credential, but the
+    ordinary ``/v1/realtime?model=...`` route did not. That left the upstream
+    OpenAI handler with no API key despite the model being configured correctly.
+    """
+    from litellm.proxy import proxy_server
+
+    websocket = MagicMock()
+    websocket.headers = {}
+    websocket.scope = {"headers": []}
+    websocket.accept = AsyncMock()
+    websocket.send_text = AsyncMock()
+    websocket.close = AsyncMock()
+
+    mock_processor = MagicMock()
+    mock_processor.common_processing_pre_call_logic = AsyncMock(
+        return_value=({"model": "voice-realtime"}, MagicMock())
+    )
+    mock_router = MagicMock()
+    mock_router.get_deployment_credentials_with_provider.return_value = {
+        "api_key": "provider-key",
+        "api_base": "https://api.openai.com/v1",
+        "custom_llm_provider": "openai",
+    }
+
+    async def completed_realtime_call():
+        return None
+
+    with (
+        patch(
+            "litellm.proxy.proxy_server.can_key_call_resolved_model",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "litellm.proxy.proxy_server.ProxyBaseLLMRequestProcessing",
+            return_value=mock_processor,
+        ),
+        patch("litellm.proxy.proxy_server.llm_router", mock_router),
+        patch(
+            "litellm.proxy.proxy_server.route_request",
+            new=AsyncMock(return_value=completed_realtime_call()),
+        ) as mock_route_request,
+    ):
+        await proxy_server.realtime_websocket_endpoint(
+            websocket=websocket,
+            model="voice-realtime",
+            intent=None,
+            guardrails=None,
+            user_api_key_dict=UserAPIKeyAuth(models=["*"], team_id="voice-team"),
+        )
+
+    data = mock_route_request.await_args.kwargs["data"]
+    assert data["api_key"] == "provider-key"
+    assert data["api_base"] == "https://api.openai.com/v1"
+    assert data["custom_llm_provider"] == "openai"
+    mock_router.get_deployment_credentials_with_provider.assert_called_once_with(
+        "voice-realtime", team_id="voice-team"
+    )
+
+
+@pytest.mark.asyncio
 async def test_realtime_websocket_phase2_failure_on_closed_socket_does_not_escape():
     """The lower handler layer may have already closed the client socket before
     the phase-2 handler runs (it closes on backend failures itself, then can
