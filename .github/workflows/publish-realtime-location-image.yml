@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - realtime_location_header
+      - realtime-direct-ws-router-fix
     paths:
       - .github/workflows/publish-realtime-location-image.yml
       - Dockerfile
