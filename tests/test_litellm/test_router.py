@@ -1539,7 +1539,7 @@ async def test_router_ageneric_api_call_materializes_named_credential():
     assert captured["model"] == "gpt-realtime-2.1"
     assert captured["api_base"] == "https://realtime.example.test"
     assert captured["api_key"] == "provider-key"
-    assert captured["litellm_credential_name"] == "OpenAI"
+    assert "litellm_credential_name" not in captured
 
 
 @pytest.mark.asyncio

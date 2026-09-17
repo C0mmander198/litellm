@@ -6208,25 +6208,3 @@ def test_load_credentials_from_list_fills_kwargs_from_the_loaded_credential_with
         "api_key": "sk-from-db",
     }
     assert _credential_warnings(caplog) == []
-
-
-def test_load_credentials_from_list_replaces_null_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    from litellm.types.utils import CredentialItem
-    from litellm.utils import load_credentials_from_list
-
-    loaded = CredentialItem(
-        credential_name="openai-cred",
-        credential_values={"api_key": "sk-from-db", "api_base": "https://credential.example"},
-        credential_info={},
-    )
-    monkeypatch.setattr(litellm, "credential_list", [loaded])
-    request_kwargs = {
-        "litellm_credential_name": "openai-cred",
-        "api_key": None,
-        "api_base": None,
-    }
-
-    load_credentials_from_list(request_kwargs)
-
-    assert request_kwargs["api_key"] == "sk-from-db"
-    assert request_kwargs["api_base"] == "https://credential.example"

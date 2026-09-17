@@ -900,7 +900,18 @@ async def test_realtime_websocket_routes_without_virtual_key():
     mock_router.pattern_router.patterns = []
     mock_router.map_team_model.return_value = None
     mock_router.is_recognized_model.return_value = True
-    mock_router._arealtime = AsyncMock(return_value=None)
+    mock_router.async_get_available_deployment = AsyncMock(
+        return_value={
+            "model_name": "voice-realtime",
+            "litellm_params": {
+                "model": "gpt-realtime-2.1",
+                "api_key": "provider-key",
+                "api_base": "https://realtime.example.test",
+                "custom_llm_provider": "openai",
+                "litellm_credential_name": "OpenAI",
+            },
+        }
+    )
     auth = UserAPIKeyAuth(models=["*"], team_id="voice-team")
 
     with (
@@ -913,6 +924,10 @@ async def test_realtime_websocket_routes_without_virtual_key():
             return_value=mock_processor,
         ),
         patch("litellm.proxy.proxy_server.llm_router", mock_router),
+        patch(
+            "litellm.proxy.proxy_server.litellm._arealtime",
+            new=AsyncMock(return_value=None),
+        ) as direct_realtime,
     ):
         await proxy_server.realtime_websocket_endpoint(
             websocket=websocket,
@@ -922,19 +937,14 @@ async def test_realtime_websocket_routes_without_virtual_key():
             user_api_key_dict=auth,
         )
 
-    routed_data = mock_router._arealtime.call_args.kwargs
-    assert routed_data["model"] == "voice-realtime"
+    routed_data = direct_realtime.call_args.kwargs
+    assert routed_data["model"] == "gpt-realtime-2.1"
     assert routed_data["user_api_key_dict"] is auth
-    for provider_connection_field in (
-        "api_key",
-        "api_base",
-        "api_version",
-        "azure_ad_token",
-        "custom_llm_provider",
-        "litellm_credential_name",
-    ):
-        assert provider_connection_field not in routed_data
-    mock_router._arealtime.assert_awaited_once()
+    assert routed_data["api_key"] == "provider-key"
+    assert routed_data["api_base"] == "https://realtime.example.test"
+    assert routed_data["custom_llm_provider"] == "openai"
+    mock_router.async_get_available_deployment.assert_awaited_once()
+    direct_realtime.assert_awaited_once()
 
 
 @pytest.mark.asyncio

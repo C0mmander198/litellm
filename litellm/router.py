@@ -5266,10 +5266,7 @@ class Router:
                 ):
                     if data.get(provider_connection_field) is not None:
                         response_kwargs[provider_connection_field] = data[provider_connection_field]
-                # Keep the reference through the decorated provider wrapper.
-                # Its final pre-provider credential load runs after deployment
-                # hooks, which may reintroduce null connection defaults.
-                response_kwargs["litellm_credential_name"] = credential_name
+                response_kwargs.pop("litellm_credential_name", None)
             # Only set custom_llm_provider if it's not None
             if custom_llm_provider is not None:
                 response_kwargs["custom_llm_provider"] = custom_llm_provider

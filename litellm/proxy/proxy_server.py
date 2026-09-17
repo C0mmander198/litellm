@@ -11871,17 +11871,31 @@ async def realtime_websocket_endpoint(
                 "litellm_credential_name",
             ):
                 data.pop(provider_connection_field, None)
-        llm_call: Final = (
-            litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
-            if sideband_context is not None
-            else await route_request(
+        if sideband_context is not None:
+            llm_call = litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
+        elif llm_router is not None:
+            # A Realtime WebSocket is one long-lived provider connection, so
+            # select its deployment once, resolve that deployment's named
+            # credential, and connect directly.  Passing the socket through
+            # Router's generic wrapper can overwrite provider connection
+            # fields with request defaults after selection.
+            deployment: Final = await llm_router.async_get_available_deployment(
+                model=data["model"],
+                request_kwargs=data,
+                messages=data.get("messages"),
+                input=data.get("input"),
+            )
+            deployment_params: Final = deployment["litellm_params"].copy()
+            load_credentials_from_list(deployment_params)
+            llm_call = litellm._arealtime(**{**data, **deployment_params})
+        else:
+            llm_call = await route_request(
                 data=data,
                 route_type="_arealtime",
                 llm_router=llm_router,
                 user_model=user_model,
                 user_api_key_dict=user_api_key_dict,
             )
-        )
         await llm_call
     except websockets.exceptions.InvalidStatusCode as e:
         verbose_proxy_logger.exception("Invalid status code")
