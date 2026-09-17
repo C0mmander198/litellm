@@ -869,6 +869,9 @@ async def test_realtime_websocket_routes_without_virtual_key():
     deployment and materialize its named provider credential instead.
     """
     from litellm.proxy import proxy_server
+    from litellm.types.utils import CredentialItem
+
+    import litellm
 
     websocket = MagicMock()
     websocket.headers = {}
@@ -905,7 +908,7 @@ async def test_realtime_websocket_routes_without_virtual_key():
             "model_name": "voice-realtime",
             "litellm_params": {
                 "model": "gpt-realtime-2.1",
-                "api_key": "provider-key",
+                "api_key": None,
                 "api_base": "https://realtime.example.test",
                 "custom_llm_provider": "openai",
                 "litellm_credential_name": "OpenAI",
@@ -924,6 +927,17 @@ async def test_realtime_websocket_routes_without_virtual_key():
             return_value=mock_processor,
         ),
         patch("litellm.proxy.proxy_server.llm_router", mock_router),
+        patch.object(
+            litellm,
+            "credential_list",
+            [
+                CredentialItem(
+                    credential_name="OpenAI",
+                    credential_info={"custom_llm_provider": "openai"},
+                    credential_values={"api_key": "provider-key"},
+                )
+            ],
+        ),
         patch(
             "litellm.proxy.proxy_server.litellm._arealtime",
             new=AsyncMock(return_value=None),

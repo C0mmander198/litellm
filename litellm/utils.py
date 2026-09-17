@@ -684,7 +684,9 @@ def load_credentials_from_list(kwargs: dict):
         )
         return
     for key, value in credential.credential_values.items():
-        if key not in kwargs:
+        # Router deployment models may contain schema-defaulted null fields.
+        # Null is not an intentional override of a named credential.
+        if kwargs.get(key) is None:
             kwargs[key] = value
 
 
