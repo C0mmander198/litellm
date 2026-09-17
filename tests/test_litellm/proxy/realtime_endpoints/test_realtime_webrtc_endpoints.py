@@ -833,7 +833,7 @@ async def test_realtime_websocket_phase2_failure_sends_error_event_and_reasoned_
             return_value=mock_processor,
         ),
         patch(
-            "litellm.proxy.proxy_server.route_request",
+            "litellm.proxy.proxy_server.litellm._arealtime",
             new=AsyncMock(side_effect=RuntimeError("vertex token refresh exploded")),
         ),
     ):
@@ -878,17 +878,15 @@ async def test_realtime_websocket_resolves_deployment_provider_credentials():
 
     mock_processor = MagicMock()
     mock_processor.common_processing_pre_call_logic = AsyncMock(
-        return_value=({"model": "voice-realtime"}, MagicMock())
+        return_value=({"model": "voice-realtime", "api_key": "virtual-key"}, MagicMock())
     )
     mock_router = MagicMock()
     mock_router.get_deployment_credentials_with_provider.return_value = {
         "api_key": "provider-key",
         "api_base": "https://api.openai.com/v1",
         "custom_llm_provider": "openai",
+        "model": "gpt-realtime",
     }
-
-    async def completed_realtime_call():
-        return None
 
     with (
         patch(
@@ -901,9 +899,9 @@ async def test_realtime_websocket_resolves_deployment_provider_credentials():
         ),
         patch("litellm.proxy.proxy_server.llm_router", mock_router),
         patch(
-            "litellm.proxy.proxy_server.route_request",
-            new=AsyncMock(return_value=completed_realtime_call()),
-        ) as mock_route_request,
+            "litellm.proxy.proxy_server.litellm._arealtime",
+            new=AsyncMock(return_value=None),
+        ) as mock_realtime,
     ):
         await proxy_server.realtime_websocket_endpoint(
             websocket=websocket,
@@ -913,10 +911,11 @@ async def test_realtime_websocket_resolves_deployment_provider_credentials():
             user_api_key_dict=UserAPIKeyAuth(models=["*"], team_id="voice-team"),
         )
 
-    data = mock_route_request.await_args.kwargs["data"]
+    data = mock_realtime.await_args.kwargs
     assert data["api_key"] == "provider-key"
     assert data["api_base"] == "https://api.openai.com/v1"
     assert data["custom_llm_provider"] == "openai"
+    assert data["model"] == "gpt-realtime"
     mock_router.get_deployment_credentials_with_provider.assert_called_once_with(
         "voice-realtime", team_id="voice-team"
     )
