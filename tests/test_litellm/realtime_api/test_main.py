@@ -17,6 +17,32 @@ class FakeLogging:
         pass
 
 
+@pytest.mark.asyncio
+async def test_openai_realtime_preserves_explicit_provider_api_key(monkeypatch):
+    """The Router-selected provider key must reach the upstream WebSocket.
+
+    ``get_llm_provider`` returns a dynamic key only for providers whose key is
+    resolved from a provider-specific environment variable. For a normal
+    OpenAI model it returns ``None`` there, so the explicit deployment key is
+    still the authoritative credential.
+    """
+    upstream: Final = AsyncMock()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(litellm, "api_key", None)
+    monkeypatch.setattr(litellm, "openai_key", None)
+
+    with patch.object(realtime_main.openai_realtime, "async_realtime", upstream):
+        await realtime_main._arealtime.__wrapped__(
+            model="gpt-realtime-2.1",
+            websocket=MagicMock(),
+            api_base="http://realtime-upstream.example",
+            api_key="selected-provider-key",
+            litellm_logging_obj=FakeLogging(),
+        )
+
+    assert upstream.await_args.kwargs["api_key"] == "selected-provider-key"
+
+
 def test_resolves_top_level_session_model():
     resolved = _with_resolved_session_model({"model": "alias/gpt-realtime"}, "gpt-realtime")
     assert resolved == {"model": "gpt-realtime"}
