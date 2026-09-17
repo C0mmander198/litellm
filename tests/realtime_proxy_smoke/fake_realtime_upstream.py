@@ -12,7 +12,10 @@ from http import HTTPStatus
 from typing import Final
 
 
-HOST: Final = "127.0.0.1"
+# The proxy runs in Docker and reaches the runner through
+# host.docker.internal, so the fixture must listen on the runner's bridge
+# interface as well as loopback.
+HOST: Final = "0.0.0.0"
 PORT: Final = 18765
 EXPECTED_AUTH: Final = "Bearer provider-test-key"
 WEBSOCKET_GUID: Final = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -90,4 +93,3 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
 if __name__ == "__main__":
     with ReusableTCPServer((HOST, PORT), RealtimeHandler) as server:
         server.serve_forever()
-
