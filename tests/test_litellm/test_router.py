@@ -1523,6 +1523,9 @@ async def test_router_ageneric_api_call_materializes_named_credential():
         await router._ageneric_api_call_with_fallbacks_helper(
             model="voice-realtime",
             original_generic_function=capture_provider_call,
+            api_key=None,
+            api_base=None,
+            litellm_credential_name=None,
         )
 
     assert captured["model"] == "gpt-realtime-2.1"

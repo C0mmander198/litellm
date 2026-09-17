@@ -5252,6 +5252,21 @@ class Router:
                 "model": model_name,
                 **_with_router_resolved_session_model(kwargs.get("session"), model_name),
             }
+            if credential_name is not None:
+                # Router defaults may add null provider fields to ``kwargs``
+                # after selection.  Because request kwargs are merged after
+                # deployment data, those nulls would otherwise erase the
+                # materialized named credential and deployment API base.
+                for provider_connection_field in (
+                    "api_key",
+                    "api_base",
+                    "api_version",
+                    "azure_ad_token",
+                    "custom_llm_provider",
+                ):
+                    if data.get(provider_connection_field) is not None:
+                        response_kwargs[provider_connection_field] = data[provider_connection_field]
+                response_kwargs.pop("litellm_credential_name", None)
             # Only set custom_llm_provider if it's not None
             if custom_llm_provider is not None:
                 response_kwargs["custom_llm_provider"] = custom_llm_provider
