@@ -31,8 +31,12 @@ docker run --detach --name "${container_name}" \
 
 for _ in $(seq 1 90); do
   if curl --fail --silent http://127.0.0.1:14000/health/liveliness >/dev/null; then
-    python3 tests/realtime_proxy_smoke/probe.py
-    exit 0
+    if python3 tests/realtime_proxy_smoke/probe.py; then
+      exit 0
+    fi
+    docker logs "${container_name}" 2>&1 \
+      | sed -e 's/sk-test-master/[virtual-key-redacted]/g' -e 's/provider-test-key/[provider-key-redacted]/g'
+    exit 1
   fi
   if ! docker inspect --format '{{.State.Running}}' "${container_name}" | grep -q true; then
     docker logs "${container_name}"
