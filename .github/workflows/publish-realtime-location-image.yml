@@ -17,6 +17,7 @@ on:
       - tests/test_litellm/proxy/realtime_endpoints/**
       - tests/test_litellm/llms/openai/realtime/**
       - tests/test_litellm/realtime_api/**
+      - tests/test_litellm/test_router.py
       - tests/realtime_proxy_smoke/**
       - ui/**
       - uv.lock
