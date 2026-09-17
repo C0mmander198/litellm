@@ -16,6 +16,7 @@ on:
       - tests/test_litellm/proxy/realtime_endpoints/**
       - tests/test_litellm/llms/openai/realtime/**
       - tests/test_litellm/realtime_api/**
+      - tests/realtime_proxy_smoke/**
       - ui/**
       - uv.lock
 
@@ -61,7 +62,9 @@ jobs:
           tests/test_litellm/proxy/realtime_endpoints/
           tests/test_litellm/realtime_api/test_main.py
           tests/test_litellm/llms/openai/realtime/test_openai_realtime_handler.py
-          tests/test_litellm/litellm_core_utils/test_realtime_streaming.py -q
+          tests/test_litellm/litellm_core_utils/test_realtime_streaming.py
+          tests/test_litellm/test_router.py::test_get_deployment_credentials_with_provider_resolves_credential_name
+          -q
 
   publish:
     name: Build and publish image
@@ -78,11 +81,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Log in to GHCR
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
-
       - name: Build image
         run: |
           docker build \
@@ -91,6 +89,14 @@ jobs:
             --tag "${IMAGE}:realtime-sideband-fix" \
             --tag "${IMAGE}:realtime-sideband-fix-${GITHUB_SHA::12}" \
             .
+
+      - name: Smoke-test built image through direct Realtime WebSocket
+        run: bash tests/realtime_proxy_smoke/run.sh "${IMAGE}:realtime-sideband-fix-${GITHUB_SHA::12}"
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
 
       - name: Publish image
         run: |

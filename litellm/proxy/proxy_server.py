@@ -11851,39 +11851,27 @@ async def realtime_websocket_endpoint(
     # Phase 2: route to upstream LLM.
     try:
         data["user_api_key_dict"] = user_api_key_dict
-        # ``_arealtime`` is a WebSocket-only generic route. Unlike the HTTP
-        # Realtime endpoints, its routing path did not materialize credentials
-        # referenced by a deployment's ``litellm_credential_name`` before the
-        # OpenAI handler opened the upstream socket. The direct proxy WebSocket
-        # therefore failed with "api_key is required" even though the same
-        # deployment works through the WebRTC/client-secret path.
-        #
-        # Resolve only the selected deployment's provider fields after model
-        # authorization has succeeded. This keeps direct WebSocket Realtime
-        # routing aligned with the other Realtime endpoints without exposing a
-        # provider key to the caller.
-        if sideband_context is None and llm_router is not None:
-            provider_credentials = llm_router.get_deployment_credentials_with_provider(
-                route_model,
-                team_id=user_api_key_dict.team_id,
-            )
-            if provider_credentials is not None:
-                # ``data["api_key"]`` at this point is the caller's LiteLLM
-                # virtual key, not an upstream-provider credential. Replace it
-                # only inside the server-side upstream call with the deployment
-                # credential, and use the concrete provider model too.
-                for credential_field in ("api_key", "api_base", "custom_llm_provider", "model"):
-                    credential_value = provider_credentials.get(credential_field)
-                    if credential_value is not None:
-                        data[credential_field] = credential_value
+        if sideband_context is None:
+            # ``common_processing_pre_call_logic`` puts the caller's LiteLLM
+            # virtual key in ``data["api_key"]``.  Leaving it there makes
+            # ``route_request`` treat it as a client-supplied provider key and
+            # bypass normal deployment credential materialization.  Route the
+            # already-authorized request through Router without that caller
+            # credential so Router selects the concrete deployment and the
+            # normal LiteLLM wrapper resolves ``litellm_credential_name``.
+            # The authenticated identity remains available in
+            # ``user_api_key_dict`` for hooks, accounting and attribution.
+            data.pop("api_key", None)
         llm_call: Final = (
             litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
             if sideband_context is not None
-            # Once we have selected and authorized the deployment above, route
-            # this WebSocket directly to its provider. Sending it back through
-            # Router would treat the virtual caller key as a provider key and
-            # discard the hydrated credential.
-            else litellm._arealtime(**data)
+            else await route_request(
+                data=data,
+                route_type="_arealtime",
+                llm_router=llm_router,
+                user_model=user_model,
+                user_api_key_dict=user_api_key_dict,
+            )
         )
         await llm_call
     except websockets.exceptions.InvalidStatusCode as e:

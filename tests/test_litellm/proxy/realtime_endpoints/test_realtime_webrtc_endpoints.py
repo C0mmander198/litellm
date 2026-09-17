@@ -833,7 +833,7 @@ async def test_realtime_websocket_phase2_failure_sends_error_event_and_reasoned_
             return_value=mock_processor,
         ),
         patch(
-            "litellm.proxy.proxy_server.litellm._arealtime",
+            "litellm.proxy.proxy_server.route_request",
             new=AsyncMock(side_effect=RuntimeError("vertex token refresh exploded")),
         ),
     ):
@@ -860,12 +860,13 @@ async def test_realtime_websocket_phase2_failure_sends_error_event_and_reasoned_
 
 
 @pytest.mark.asyncio
-async def test_realtime_websocket_resolves_deployment_provider_credentials():
-    """Direct Realtime WebSockets must hydrate a model's stored credential.
+async def test_realtime_websocket_routes_without_virtual_key():
+    """Direct Realtime WebSockets must use Router credential materialization.
 
-    The WebRTC client-secret flow already resolved this credential, but the
-    ordinary ``/v1/realtime?model=...`` route did not. That left the upstream
-    OpenAI handler with no API key despite the model being configured correctly.
+    ``common_processing_pre_call_logic`` supplies the authenticated caller's
+    virtual key as ``data["api_key"]``.  That key must not be presented to
+    Router as a client-side provider credential: Router must select the
+    deployment and materialize its named provider credential instead.
     """
     from litellm.proxy import proxy_server
 
@@ -881,12 +882,15 @@ async def test_realtime_websocket_resolves_deployment_provider_credentials():
         return_value=({"model": "voice-realtime", "api_key": "virtual-key"}, MagicMock())
     )
     mock_router = MagicMock()
-    mock_router.get_deployment_credentials_with_provider.return_value = {
-        "api_key": "provider-key",
-        "api_base": "https://api.openai.com/v1",
-        "custom_llm_provider": "openai",
-        "model": "gpt-realtime",
-    }
+    mock_router.model_names = ["voice-realtime"]
+    mock_router.team_public_model_names = set()
+    mock_router.router_general_settings.pass_through_all_models = False
+    mock_router.default_deployment = None
+    mock_router.pattern_router.patterns = []
+    mock_router.map_team_model.return_value = None
+    mock_router.is_recognized_model.return_value = True
+    mock_router._arealtime = AsyncMock(return_value=None)
+    auth = UserAPIKeyAuth(models=["*"], team_id="voice-team")
 
     with (
         patch(
@@ -898,27 +902,20 @@ async def test_realtime_websocket_resolves_deployment_provider_credentials():
             return_value=mock_processor,
         ),
         patch("litellm.proxy.proxy_server.llm_router", mock_router),
-        patch(
-            "litellm.proxy.proxy_server.litellm._arealtime",
-            new=AsyncMock(return_value=None),
-        ) as mock_realtime,
     ):
         await proxy_server.realtime_websocket_endpoint(
             websocket=websocket,
             model="voice-realtime",
             intent=None,
             guardrails=None,
-            user_api_key_dict=UserAPIKeyAuth(models=["*"], team_id="voice-team"),
+            user_api_key_dict=auth,
         )
 
-    data = mock_realtime.await_args.kwargs
-    assert data["api_key"] == "provider-key"
-    assert data["api_base"] == "https://api.openai.com/v1"
-    assert data["custom_llm_provider"] == "openai"
-    assert data["model"] == "gpt-realtime"
-    mock_router.get_deployment_credentials_with_provider.assert_called_once_with(
-        "voice-realtime", team_id="voice-team"
-    )
+    routed_data = mock_router._arealtime.call_args.kwargs
+    assert routed_data["model"] == "voice-realtime"
+    assert routed_data["user_api_key_dict"] is auth
+    assert "api_key" not in routed_data
+    mock_router._arealtime.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -952,7 +949,7 @@ async def test_realtime_websocket_phase2_failure_on_closed_socket_does_not_escap
             return_value=mock_processor,
         ),
         patch(
-            "litellm.proxy.proxy_server.litellm._arealtime",
+            "litellm.proxy.proxy_server.route_request",
             new=AsyncMock(side_effect=RuntimeError("vertex token refresh exploded")),
         ),
     ):

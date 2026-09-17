@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="${1:?image tag required}"
+container_name="litellm-realtime-smoke-${GITHUB_RUN_ID:-local}"
+upstream_pid=""
+
+cleanup() {
+  docker rm -f "${container_name}" >/dev/null 2>&1 || true
+  if [[ -n "${upstream_pid}" ]]; then
+    kill "${upstream_pid}" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+
+python3 tests/realtime_proxy_smoke/fake_realtime_upstream.py &
+upstream_pid=$!
+
+docker run --detach --name "${container_name}" \
+  --add-host host.docker.internal:host-gateway \
+  --publish 14000:4000 \
+  --env LITELLM_MASTER_KEY=sk-test-master \
+  --volume "${PWD}/tests/realtime_proxy_smoke/config.yaml:/tmp/realtime-smoke.yaml:ro" \
+  "${image}" --config /tmp/realtime-smoke.yaml --port 4000 >/dev/null
+
+for _ in $(seq 1 90); do
+  if curl --fail --silent http://127.0.0.1:14000/health/liveliness >/dev/null; then
+    python3 tests/realtime_proxy_smoke/probe.py
+    exit 0
+  fi
+  if ! docker inspect --format '{{.State.Running}}' "${container_name}" | grep -q true; then
+    docker logs "${container_name}"
+    exit 1
+  fi
+  sleep 2
+done
+
+docker logs "${container_name}"
+echo "LiteLLM smoke container did not become live" >&2
+exit 1
+
