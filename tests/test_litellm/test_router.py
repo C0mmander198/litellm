@@ -1517,15 +1517,23 @@ async def test_router_ageneric_api_call_materializes_named_credential():
             "get_credential_values",
             return_value={"api_key": "provider-key"},
         ),
+        patch.object(
+            router,
+            "_update_kwargs_with_deployment",
+            side_effect=lambda deployment, kwargs, function_name=None: kwargs.update(
+                {
+                    "api_key": None,
+                    "api_base": None,
+                    "litellm_credential_name": None,
+                }
+            ),
+        ),
         patch.object(router, "async_routing_strategy_pre_call_checks"),
         patch.object(router, "_get_client", return_value=None),
     ):
         await router._ageneric_api_call_with_fallbacks_helper(
             model="voice-realtime",
             original_generic_function=capture_provider_call,
-            api_key=None,
-            api_base=None,
-            litellm_credential_name=None,
         )
 
     assert captured["model"] == "gpt-realtime-2.1"
