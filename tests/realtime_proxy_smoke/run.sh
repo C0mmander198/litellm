@@ -3,7 +3,13 @@ set -euo pipefail
 
 image="${1:?image tag required}"
 container_name="litellm-realtime-smoke-${GITHUB_RUN_ID:-local}"
+config_path="$(pwd -P)/tests/realtime_proxy_smoke/config.yaml"
 upstream_pid=""
+
+if [[ ! -f "${config_path}" ]]; then
+  echo "Smoke config is not a regular file: ${config_path}" >&2
+  exit 1
+fi
 
 cleanup() {
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
@@ -20,8 +26,8 @@ docker run --detach --name "${container_name}" \
   --add-host host.docker.internal:host-gateway \
   --publish 14000:4000 \
   --env LITELLM_MASTER_KEY=sk-test-master \
-  --volume "${PWD}/tests/realtime_proxy_smoke/config.yaml:/tmp/realtime-smoke.yaml:ro" \
-  "${image}" --config /tmp/realtime-smoke.yaml --port 4000 >/dev/null
+  --mount "type=bind,source=${config_path},target=/app/realtime-smoke-config.yaml,readonly" \
+  "${image}" --config /app/realtime-smoke-config.yaml --port 4000 >/dev/null
 
 for _ in $(seq 1 90); do
   if curl --fail --silent http://127.0.0.1:14000/health/liveliness >/dev/null; then
@@ -38,4 +44,3 @@ done
 docker logs "${container_name}"
 echo "LiteLLM smoke container did not become live" >&2
 exit 1
-
