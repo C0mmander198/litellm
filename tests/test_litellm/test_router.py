@@ -1484,6 +1484,54 @@ async def test_router_ageneric_api_call_with_fallbacks_helper():
 
 
 @pytest.mark.asyncio
+async def test_router_ageneric_api_call_materializes_named_credential():
+    """Generic Router calls must resolve the selected deployment's credential
+    before invoking the provider, rather than relying on request defaults or a
+    later wrapper to do so."""
+    from unittest.mock import patch
+
+    from litellm.litellm_core_utils.credential_accessor import CredentialAccessor
+
+    captured: dict = {}
+
+    async def capture_provider_call(**kwargs):
+        captured.update(kwargs)
+        return {"result": "ok"}
+
+    router = litellm.Router(
+        model_list=[
+            {
+                "model_name": "voice-realtime",
+                "litellm_params": {
+                    "model": "gpt-realtime-2.1",
+                    "litellm_credential_name": "OpenAI",
+                    "api_base": "https://realtime.example.test",
+                },
+            }
+        ]
+    )
+
+    with (
+        patch.object(
+            CredentialAccessor,
+            "get_credential_values",
+            return_value={"api_key": "provider-key"},
+        ),
+        patch.object(router, "async_routing_strategy_pre_call_checks"),
+        patch.object(router, "_get_client", return_value=None),
+    ):
+        await router._ageneric_api_call_with_fallbacks_helper(
+            model="voice-realtime",
+            original_generic_function=capture_provider_call,
+        )
+
+    assert captured["model"] == "gpt-realtime-2.1"
+    assert captured["api_base"] == "https://realtime.example.test"
+    assert captured["api_key"] == "provider-key"
+    assert "litellm_credential_name" not in captured
+
+
+@pytest.mark.asyncio
 async def test_ageneric_api_call_deployment_model_overrides_alias():
     """
     Regression: when a model alias (e.g. "not-gemini-2.5-flash") maps to a deployment

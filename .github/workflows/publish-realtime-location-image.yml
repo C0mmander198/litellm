@@ -65,6 +65,7 @@ jobs:
           tests/test_litellm/llms/openai/realtime/test_openai_realtime_handler.py
           tests/test_litellm/litellm_core_utils/test_realtime_streaming.py
           tests/test_litellm/test_router.py::test_get_deployment_credentials_with_provider_resolves_credential_name
+          tests/test_litellm/test_router.py::test_router_ageneric_api_call_materializes_named_credential
           -q
 
   publish:

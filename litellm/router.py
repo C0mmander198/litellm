@@ -4889,6 +4889,12 @@ class Router:
             self._update_kwargs_with_deployment(deployment=deployment, kwargs=kwargs)
 
             data: Final = deployment["litellm_params"].copy()
+            credential_name: Final = data.pop("litellm_credential_name", None)
+            if credential_name is not None:
+                credential_values: Final = CredentialAccessor.get_credential_values(credential_name)
+                if not credential_values:
+                    raise ValueError("Deployment credential could not be resolved")
+                data.update(credential_values)
             model_name: Final = data["model"]
 
             model_client: Final = self._get_async_openai_model_client(
