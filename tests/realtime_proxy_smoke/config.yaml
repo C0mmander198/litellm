@@ -8,6 +8,7 @@ model_list:
 
 credential_list:
   - credential_name: smoke-openai
+    credential_info:
+      custom_llm_provider: openai
     credential_values:
       api_key: provider-test-key
-
