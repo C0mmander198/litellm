@@ -3,5 +3,12 @@ model_list:
     litellm_params:
       model: gpt-realtime-2.1
       custom_llm_provider: openai
-      api_base: http://host.docker.internal:18765
-      api_key: os.environ/SMOKE_PROVIDER_API_KEY
+      api_base: os.environ/SMOKE_PROVIDER_API_BASE
+      litellm_credential_name: smoke-openai
+
+credential_list:
+  - credential_name: smoke-openai
+    credential_info:
+      custom_llm_provider: openai
+    credential_values:
+      api_key: provider-test-key

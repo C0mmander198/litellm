@@ -69,6 +69,9 @@ jobs:
           tests/test_litellm/test_router.py::test_router_ageneric_api_call_materializes_named_credential
           -q
 
+      - name: Run direct Realtime source integration test
+        run: bash tests/realtime_proxy_smoke/run_source.sh
+
   publish:
     name: Build and publish image
     needs: test

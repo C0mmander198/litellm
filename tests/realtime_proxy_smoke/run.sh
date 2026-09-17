@@ -26,7 +26,7 @@ docker run --detach --name "${container_name}" \
   --add-host host.docker.internal:host-gateway \
   --publish 14000:4000 \
   --env LITELLM_MASTER_KEY=sk-test-master \
-  --env SMOKE_PROVIDER_API_KEY=provider-test-key \
+  --env SMOKE_PROVIDER_API_BASE=http://host.docker.internal:18765 \
   --mount "type=bind,source=${config_path},target=/app/realtime-smoke-config.yaml,readonly" \
   "${image}" --config /app/realtime-smoke-config.yaml --port 4000 >/dev/null
 
