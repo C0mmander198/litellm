@@ -879,7 +879,18 @@ async def test_realtime_websocket_routes_without_virtual_key():
 
     mock_processor = MagicMock()
     mock_processor.common_processing_pre_call_logic = AsyncMock(
-        return_value=({"model": "voice-realtime", "api_key": "virtual-key"}, MagicMock())
+        return_value=(
+            {
+                "model": "voice-realtime",
+                "api_key": "virtual-key",
+                "api_base": None,
+                "api_version": None,
+                "azure_ad_token": None,
+                "custom_llm_provider": None,
+                "litellm_credential_name": None,
+            },
+            MagicMock(),
+        )
     )
     mock_router = MagicMock()
     mock_router.model_names = ["voice-realtime"]
@@ -914,7 +925,15 @@ async def test_realtime_websocket_routes_without_virtual_key():
     routed_data = mock_router._arealtime.call_args.kwargs
     assert routed_data["model"] == "voice-realtime"
     assert routed_data["user_api_key_dict"] is auth
-    assert "api_key" not in routed_data
+    for provider_connection_field in (
+        "api_key",
+        "api_base",
+        "api_version",
+        "azure_ad_token",
+        "custom_llm_provider",
+        "litellm_credential_name",
+    ):
+        assert provider_connection_field not in routed_data
     mock_router._arealtime.assert_awaited_once()
 
 

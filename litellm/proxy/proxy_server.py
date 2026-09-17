@@ -11852,16 +11852,25 @@ async def realtime_websocket_endpoint(
     try:
         data["user_api_key_dict"] = user_api_key_dict
         if sideband_context is None:
-            # ``common_processing_pre_call_logic`` puts the caller's LiteLLM
-            # virtual key in ``data["api_key"]``.  Leaving it there makes
-            # ``route_request`` treat it as a client-supplied provider key and
-            # bypass normal deployment credential materialization.  Route the
-            # already-authorized request through Router without that caller
-            # credential so Router selects the concrete deployment and the
-            # normal LiteLLM wrapper resolves ``litellm_credential_name``.
+            # ``common_processing_pre_call_logic`` may leave client/provider
+            # connection fields in the request data (including the caller's
+            # LiteLLM virtual key and a null credential name).  Router's generic
+            # call helper overlays request data on the selected deployment; if
+            # these fields remain, they replace the deployment's named
+            # credential and API base.  A direct Realtime WebSocket has no
+            # provider-credential request body, so all provider connection
+            # details must come exclusively from the selected deployment.
             # The authenticated identity remains available in
             # ``user_api_key_dict`` for hooks, accounting and attribution.
-            data.pop("api_key", None)
+            for provider_connection_field in (
+                "api_key",
+                "api_base",
+                "api_version",
+                "azure_ad_token",
+                "custom_llm_provider",
+                "litellm_credential_name",
+            ):
+                data.pop(provider_connection_field, None)
         llm_call: Final = (
             litellm._arealtime(**{**data, **sideband_context.route.model_dump()})
             if sideband_context is not None
