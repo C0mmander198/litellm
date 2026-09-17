@@ -684,7 +684,10 @@ def load_credentials_from_list(kwargs: dict):
         )
         return
     for key, value in credential.credential_values.items():
-        if key not in kwargs:
+        # A null request/default value is not an intentional credential
+        # override. Named credentials must remain authoritative after hooks
+        # and routing defaults have run.
+        if kwargs.get(key) is None:
             kwargs[key] = value
 
 
