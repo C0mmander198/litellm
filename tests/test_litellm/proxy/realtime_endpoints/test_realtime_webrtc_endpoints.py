@@ -952,7 +952,7 @@ async def test_realtime_websocket_phase2_failure_on_closed_socket_does_not_escap
             return_value=mock_processor,
         ),
         patch(
-            "litellm.proxy.proxy_server.route_request",
+            "litellm.proxy.proxy_server.litellm._arealtime",
             new=AsyncMock(side_effect=RuntimeError("vertex token refresh exploded")),
         ),
     ):
